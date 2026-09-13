@@ -21,10 +21,12 @@ On first startup with an empty table, five two-hour keys and five lifetime keys 
 
 The Electron app should use the deployed API URL through `LICENSE_API_URL`. Never ship `SUPABASE_SERVICE_ROLE_KEY` in the Electron app.
 
+Each license is bound to the first device installation that validates it. The client sends a random installation identity; the API stores only its SHA-256 hash. A later device receives `device_bound`.
+
 Example:
 
 ```bash
 curl -X POST https://your-license-api.example.com/api/licenses/validate \
   -H 'content-type: application/json' \
-  -d '{"token":"AS-LIFE-..."}'
+  -d '{"token":"AS-LIFE-...", "deviceId":"installation-identity"}'
 ```

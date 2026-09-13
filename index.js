@@ -23,6 +23,10 @@ function hashToken(token) {
   return crypto.createHash('sha256').update(token, 'utf8').digest('hex')
 }
 
+function hashDeviceId(deviceId) {
+  return crypto.createHash('sha256').update(deviceId, 'utf8').digest('hex')
+}
+
 function createToken(type) {
   const prefix = type === 'trial_2h' ? 'AS-2H' : 'AS-LIFE'
   return `${prefix}-${crypto.randomBytes(18).toString('base64url').toUpperCase()}`
@@ -89,6 +93,30 @@ async function activateTrial(row, now) {
   return current
 }
 
+async function bindDevice(row, deviceHash) {
+  if (row.device_id_hash === deviceHash) return row
+  if (row.device_id_hash) return null
+
+  const { data, error } = await supabase
+    .from('license_keys')
+    .update({ device_id_hash: deviceHash })
+    .eq('id', row.id)
+    .is('device_id_hash', null)
+    .select('*')
+    .maybeSingle()
+
+  if (error) throw new Error(`Unable to bind license: ${error.message}`)
+  if (data) return data
+
+  const { data: current, error: reloadError } = await supabase
+    .from('license_keys')
+    .select('*')
+    .eq('id', row.id)
+    .single()
+  if (reloadError) throw new Error(`Unable to reload license: ${reloadError.message}`)
+  return current.device_id_hash === deviceHash ? current : null
+}
+
 function validityResponse(row, now) {
   if (row.license_type === 'lifetime') {
     return {
@@ -135,7 +163,8 @@ app.use(async (_request, response, next) => {
 
 app.post('/api/licenses/validate', async (request, response) => {
   const token = typeof request.body?.token === 'string' ? request.body.token.trim() : ''
-  if (!token || token.length > 200) {
+  const deviceId = typeof request.body?.deviceId === 'string' ? request.body.deviceId.trim() : ''
+  if (!token || token.length > 200 || !deviceId || deviceId.length > 200) {
     response.status(400).json(unauthorized('token_required'))
     return
   }
@@ -158,7 +187,12 @@ app.post('/api/licenses/validate', async (request, response) => {
     }
 
     const now = new Date()
-    const activeRow = await activateTrial(data, now)
+    const boundRow = await bindDevice(data, hashDeviceId(deviceId))
+    if (!boundRow) {
+      response.status(409).json(unauthorized('device_bound'))
+      return
+    }
+    const activeRow = await activateTrial(boundRow, now)
     const result = validityResponse(activeRow, now)
 
     await supabase
