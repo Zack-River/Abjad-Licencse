@@ -125,11 +125,7 @@ app.use(async (_request, response, next) => {
     next()
   } catch (error) {
     console.error('License API initialization failed:', error)
-    response.status(500).json({
-      authorized: false,
-      reason: 'service_unavailable',
-      detail: error instanceof Error ? error.message : String(error)
-    })
+    response.status(500).json({ authorized: false, reason: 'service_unavailable' })
   }
 })
 
