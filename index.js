@@ -119,6 +119,10 @@ app.disable('x-powered-by')
 app.use(cors())
 app.use(express.json({ limit: '2kb' }))
 
+app.get('/', (_request, response) => {
+  response.json({ service: 'abjad-license-api', status: 'ok' })
+})
+
 app.use(async (_request, response, next) => {
   try {
     await ensureSeeded()
