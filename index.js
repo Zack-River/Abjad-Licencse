@@ -28,6 +28,8 @@ function createToken(type) {
   return `${prefix}-${crypto.randomBytes(18).toString('base64url').toUpperCase()}`
 }
 
+let seedPromise
+
 async function seedLicenses() {
   const { count, error: countError } = await supabase
     .from('license_keys')
@@ -48,6 +50,14 @@ async function seedLicenses() {
 
   console.info('Generated initial license keys. Only hashes are stored in Supabase.')
   for (const item of generated) console.info(`${item.type}: ${item.token}`)
+}
+
+function ensureSeeded() {
+  seedPromise ??= seedLicenses().catch((error) => {
+    seedPromise = undefined
+    throw error
+  })
+  return seedPromise
 }
 
 function unauthorized(reason) {
@@ -109,6 +119,16 @@ app.disable('x-powered-by')
 app.use(cors())
 app.use(express.json({ limit: '2kb' }))
 
+app.use(async (_request, response, next) => {
+  try {
+    await ensureSeeded()
+    next()
+  } catch (error) {
+    console.error('License API initialization failed:', error)
+    response.status(500).json({ authorized: false, reason: 'service_unavailable' })
+  }
+})
+
 app.post('/api/licenses/validate', async (request, response) => {
   const token = typeof request.body?.token === 'string' ? request.body.token.trim() : ''
   if (!token || token.length > 200) {
@@ -150,11 +170,15 @@ app.post('/api/licenses/validate', async (request, response) => {
 })
 
 async function start() {
-  await seedLicenses()
+  await ensureSeeded()
   app.listen(PORT, () => console.info(`License API listening on http://localhost:${PORT}`))
 }
 
-start().catch((error) => {
-  console.error(error)
-  process.exitCode = 1
-})
+if (process.env.VERCEL !== '1') {
+  start().catch((error) => {
+    console.error(error)
+    process.exitCode = 1
+  })
+}
+
+export default app
