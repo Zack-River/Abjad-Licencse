@@ -1,4 +1,7 @@
 alter table public.license_keys
+  add column if not exists device_id_hash text;
+
+alter table public.license_keys
   drop constraint if exists license_keys_license_type_check;
 
 alter table public.license_keys
