@@ -2,6 +2,28 @@
 
 Base URL: `https://your-license-api.example.com`
 
+## Endpoints
+
+| Method | Path | Purpose | Authentication |
+| --- | --- | --- | --- |
+| `GET` | `/` | Service health check | None |
+| `GET` | `/check` | Check a key and return validity dates | None |
+| `POST` | `/api/licenses/create` | Create a key with a requested duration | `LICENSE_ADMIN_PASSWORD` in JSON body |
+| `POST` | `/api/licenses/validate` | Validate, activate, and bind a key to a device | None; license key and device identity required |
+
+All request bodies use JSON except `/check`, which also accepts `multipart/form-data`. The API enables CORS. JSON request bodies are limited to 2 KB.
+
+## Health check
+
+`GET /` confirms that the service is responding:
+
+```json
+{
+  "service": "abjad-license-api",
+  "status": "ok"
+}
+```
+
 ## Configure
 
 Set these server-side environment variables before deploying:
@@ -79,6 +101,7 @@ Example response:
 ```
 
 An unused time-limited key is valid and has no use or expiration date until activation. Invalid keys return `valid: false` with `reason: "invalid_key"`; revoked keys return `reason: "revoked"`.
+Missing or malformed keys return `400` with `{"valid":false,"reason":"key_required"}`. A database/service failure returns `500` with `{"valid":false,"reason":"license_check_unavailable"}`. Lifetime keys have `remainingSeconds` and `expirationDate` set to `null`.
 
 ## Validate and activate in the desktop app
 
@@ -92,3 +115,20 @@ An unused time-limited key is valid and has no use or expiration date until acti
 ```
 
 Success response includes `authorized: true` and license metadata. A key bound to a different device returns `409 device_bound`; invalid, expired, or revoked keys are rejected. Send a stable random installation identifier as `deviceId`; the API stores only its hash.
+
+Example success response:
+
+```json
+{
+  "authorized": true,
+  "license": {
+    "type": "custom",
+    "period": "2 weeks",
+    "activatedAt": "2026-10-24T12:30:00.000Z",
+    "expiresAt": "2026-11-07T12:30:00.000Z",
+    "remainingSeconds": 1209600
+  }
+}
+```
+
+Validation returns `400 token_required` if `token` or `deviceId` is missing, `401` for invalid/revoked/expired keys, `409 device_bound` when another device already owns the key, and `500 validation_unavailable` on a server/database failure. A lifetime license has a `null` expiration date and remaining time.
