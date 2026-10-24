@@ -2,6 +2,7 @@ import 'dotenv/config'
 import crypto from 'node:crypto'
 import express from 'express'
 import cors from 'cors'
+import multer from 'multer'
 import { createClient } from '@supabase/supabase-js'
 import { checkLicense, hashToken, LICENSE_TYPES } from './licenseService.js'
 
@@ -153,7 +154,11 @@ app.get('/', (_request, response) => {
   response.json({ service: 'abjad-license-api', status: 'ok' })
 })
 
-app.get('/check', async (request, response) => {
+const parseCheckForm = multer({
+  limits: { fieldNameSize: 32, fieldSize: 200, fields: 1, files: 0, parts: 1 }
+}).none()
+
+app.get('/check', parseCheckForm, async (request, response) => {
   const key = typeof request.body?.key === 'string' ? request.body.key.trim() : ''
   if (!key || key.length > 200) {
     response.status(400).json({ valid: false, reason: 'key_required' })

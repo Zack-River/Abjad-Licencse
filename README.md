@@ -7,7 +7,7 @@ POST /api/licenses/validate
 GET /check
 ```
 
-`GET /check` expects a JSON body with a `key` property and returns whether the key is valid, its validity period, and its creation, first-use, and expiration dates.
+`GET /check` accepts JSON or `multipart/form-data` with a `key` property and returns whether the key is valid, its validity period, and its creation, first-use, and expiration dates.
 
 ```bash
 curl -X GET https://your-license-api.example.com/check \
