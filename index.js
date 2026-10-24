@@ -3,15 +3,9 @@ import crypto from 'node:crypto'
 import express from 'express'
 import cors from 'cors'
 import { createClient } from '@supabase/supabase-js'
+import { checkLicense, hashToken, LICENSE_TYPES } from './licenseService.js'
 
 const PORT = Number(process.env.API_PORT || 8787)
-const LICENSE_TYPES = {
-  trial_2h: { prefix: 'AS-2H', durationMs: 2 * 60 * 60 * 1000, period: '2 hours' },
-  trial_1w: { prefix: 'AS-1W', durationMs: 7 * 24 * 60 * 60 * 1000, period: '1 week' },
-  trial_1m: { prefix: 'AS-1M', durationMs: 30 * 24 * 60 * 60 * 1000, period: '1 month' },
-  lifetime: { prefix: 'AS-LIFE', durationMs: null, period: 'lifetime' }
-}
-
 function requiredEnv(name) {
   const value = process.env[name]
   if (!value) throw new Error(`Missing required environment variable: ${name}`)
@@ -23,10 +17,6 @@ const supabase = createClient(
   requiredEnv('SUPABASE_SERVICE_ROLE_KEY'),
   { auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false } }
 )
-
-function hashToken(token) {
-  return crypto.createHash('sha256').update(token, 'utf8').digest('hex')
-}
 
 function hashDeviceId(deviceId) {
   return crypto.createHash('sha256').update(deviceId, 'utf8').digest('hex')
@@ -161,6 +151,22 @@ app.use(express.json({ limit: '2kb' }))
 
 app.get('/', (_request, response) => {
   response.json({ service: 'abjad-license-api', status: 'ok' })
+})
+
+app.get('/check', async (request, response) => {
+  const key = typeof request.body?.key === 'string' ? request.body.key.trim() : ''
+  if (!key || key.length > 200) {
+    response.status(400).json({ valid: false, reason: 'key_required' })
+    return
+  }
+
+  try {
+    const result = await checkLicense(supabase, key)
+    response.json(result)
+  } catch (error) {
+    console.error('License check failed:', error)
+    response.status(500).json({ valid: false, reason: 'license_check_unavailable' })
+  }
 })
 
 app.use(async (_request, response, next) => {

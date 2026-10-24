@@ -1,9 +1,18 @@
 # Arabic Stroke License API
 
-Standalone Express/Supabase service. It exposes only:
+Standalone Express/Supabase service. It exposes:
 
 ```text
 POST /api/licenses/validate
+GET /check
+```
+
+`GET /check` expects a JSON body with a `key` property and returns whether the key is valid, its validity period, and its creation, first-use, and expiration dates.
+
+```bash
+curl -X GET https://your-license-api.example.com/check \
+  -H 'content-type: application/json' \
+  -d '{"key":"AS-1W-..."}'
 ```
 
 ## Deploy
