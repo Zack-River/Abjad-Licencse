@@ -17,7 +17,7 @@ npm install
 npm start
 ```
 
-On first startup with an empty table, five two-hour keys and five lifetime keys are generated. Plaintext keys are printed once to the server console; only SHA-256 hashes are stored. Trial keys activate on first successful validation.
+At startup, the service ensures there are ten one-week keys and ten one-month keys, filling any shortfall. The one-month duration is 30 days. Plaintext keys are printed once when generated; only SHA-256 hashes are stored. Time-limited keys activate on first successful validation. Apply all migrations in `supabase/migrations` before starting the service.
 
 The Electron app should use the deployed API URL through `LICENSE_API_URL`. Never ship `SUPABASE_SERVICE_ROLE_KEY` in the Electron app.
 

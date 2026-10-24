@@ -5,7 +5,12 @@ import cors from 'cors'
 import { createClient } from '@supabase/supabase-js'
 
 const PORT = Number(process.env.API_PORT || 8787)
-const TRIAL_DURATION_MS = 2 * 60 * 60 * 1000
+const LICENSE_TYPES = {
+  trial_2h: { prefix: 'AS-2H', durationMs: 2 * 60 * 60 * 1000, period: '2 hours' },
+  trial_1w: { prefix: 'AS-1W', durationMs: 7 * 24 * 60 * 60 * 1000, period: '1 week' },
+  trial_1m: { prefix: 'AS-1M', durationMs: 30 * 24 * 60 * 60 * 1000, period: '1 month' },
+  lifetime: { prefix: 'AS-LIFE', durationMs: null, period: 'lifetime' }
+}
 
 function requiredEnv(name) {
   const value = process.env[name]
@@ -28,31 +33,36 @@ function hashDeviceId(deviceId) {
 }
 
 function createToken(type) {
-  const prefix = type === 'trial_2h' ? 'AS-2H' : 'AS-LIFE'
-  return `${prefix}-${crypto.randomBytes(18).toString('base64url').toUpperCase()}`
+  return `${LICENSE_TYPES[type].prefix}-${crypto.randomBytes(18).toString('base64url').toUpperCase()}`
 }
 
 let seedPromise
 
 async function seedLicenses() {
-  const { count, error: countError } = await supabase
+  const { data: existing, error: countError } = await supabase
     .from('license_keys')
-    .select('id', { count: 'exact', head: true })
+    .select('license_type')
 
   if (countError) throw new Error(`Unable to inspect license table: ${countError.message}`)
-  if ((count || 0) > 0) return
+  const counts = (existing || []).reduce((totals, row) => {
+    totals[row.license_type] = (totals[row.license_type] || 0) + 1
+    return totals
+  }, {})
 
   const generated = [
-    ...Array.from({ length: 5 }, () => ({ type: 'trial_2h', token: createToken('trial_2h') })),
-    ...Array.from({ length: 5 }, () => ({ type: 'lifetime', token: createToken('lifetime') }))
+    ...['trial_1w', 'trial_1m'].flatMap((type) =>
+      Array.from({ length: Math.max(0, 10 - (counts[type] || 0)) }, () => ({ type, token: createToken(type) }))
+    )
   ]
+
+  if (!generated.length) return
 
   const { error } = await supabase.from('license_keys').insert(
     generated.map(({ type, token }) => ({ token_hash: hashToken(token), license_type: type }))
   )
   if (error) throw new Error(`Unable to seed license keys: ${error.message}`)
 
-  console.info('Generated initial license keys. Only hashes are stored in Supabase.')
+  console.info('Generated license keys. Only hashes are stored in Supabase.')
   for (const item of generated) console.info(`${item.type}: ${item.token}`)
 }
 
@@ -69,10 +79,11 @@ function unauthorized(reason) {
 }
 
 async function activateTrial(row, now) {
-  if (row.license_type !== 'trial_2h' || row.activated_at) return row
+  const license = LICENSE_TYPES[row.license_type]
+  if (!license?.durationMs || row.activated_at) return row
 
   const activatedAt = now.toISOString()
-  const expiresAt = new Date(now.getTime() + TRIAL_DURATION_MS).toISOString()
+  const expiresAt = new Date(now.getTime() + license.durationMs).toISOString()
   const { data, error } = await supabase
     .from('license_keys')
     .update({ activated_at: activatedAt, expires_at: expiresAt, last_validated_at: activatedAt })
@@ -118,7 +129,8 @@ async function bindDevice(row, deviceHash) {
 }
 
 function validityResponse(row, now) {
-  if (row.license_type === 'lifetime') {
+  const license = LICENSE_TYPES[row.license_type]
+  if (!license.durationMs) {
     return {
       authorized: true,
       license: { type: 'lifetime', period: 'lifetime', expiresAt: null, remainingSeconds: null }
@@ -133,8 +145,8 @@ function validityResponse(row, now) {
   return {
     authorized: remainingSeconds > 0,
     license: {
-      type: 'trial_2h',
-      period: '2 hours',
+      type: row.license_type,
+      period: license.period,
       activatedAt: row.activated_at,
       expiresAt: row.expires_at,
       remainingSeconds
