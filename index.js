@@ -4,7 +4,7 @@ import express from 'express'
 import cors from 'cors'
 import multer from 'multer'
 import { createClient } from '@supabase/supabase-js'
-import { checkLicense, hashToken, LICENSE_TYPES } from './licenseService.js'
+import { checkLicense, formatDuration, getLicenseDuration, hashToken, LICENSE_TYPES } from './licenseService.js'
 
 const PORT = Number(process.env.API_PORT || 8787)
 function requiredEnv(name) {
@@ -70,7 +70,7 @@ function unauthorized(reason) {
 }
 
 async function activateTrial(row, now) {
-  const license = LICENSE_TYPES[row.license_type]
+  const license = getLicenseDuration(row)
   if (!license?.durationMs || row.activated_at) return row
 
   const activatedAt = now.toISOString()
@@ -120,7 +120,7 @@ async function bindDevice(row, deviceHash) {
 }
 
 function validityResponse(row, now) {
-  const license = LICENSE_TYPES[row.license_type]
+  const license = getLicenseDuration(row)
   if (!license.durationMs) {
     return {
       authorized: true,
@@ -181,6 +181,61 @@ app.use(async (_request, response, next) => {
   } catch (error) {
     console.error('License API initialization failed:', error)
     response.status(500).json({ authorized: false, reason: 'service_unavailable' })
+  }
+})
+
+app.post('/api/licenses/create', async (request, response) => {
+  const configuredPassword = process.env.LICENSE_ADMIN_PASSWORD
+  if (!configuredPassword) {
+    response.status(503).json({ created: false, reason: 'admin_endpoint_disabled' })
+    return
+  }
+
+  const suppliedPassword = typeof request.body?.password === 'string' ? request.body.password : ''
+  const expected = Buffer.from(configuredPassword)
+  const supplied = Buffer.from(suppliedPassword)
+  const passwordMatches = expected.length === supplied.length && crypto.timingSafeEqual(expected, supplied)
+  if (!passwordMatches) {
+    response.status(401).json({ created: false, reason: 'invalid_password' })
+    return
+  }
+
+  const isLifetime = request.body?.duration === 'lifetime'
+  let duration = null
+  if (!isLifetime) {
+    try {
+      duration = formatDuration(request.body?.duration, request.body?.unit)
+    } catch (error) {
+      response.status(400).json({ created: false, reason: 'invalid_duration', message: error.message })
+      return
+    }
+  }
+
+  try {
+    const type = isLifetime ? 'lifetime' : 'custom'
+    const token = createToken(type)
+    const { data, error } = await supabase
+      .from('license_keys')
+      .insert({
+        token_hash: hashToken(token),
+        license_type: type,
+        ...(duration ? { duration_seconds: duration.durationSeconds } : {})
+      })
+      .select('license_type, duration_seconds, issued_at')
+      .single()
+
+    if (error) throw new Error(`Unable to create license: ${error.message}`)
+    response.status(201).json({
+      created: true,
+      key: token,
+      validityTime: duration?.period || 'lifetime',
+      creationDate: data.issued_at,
+      useDate: null,
+      expirationDate: null
+    })
+  } catch (error) {
+    console.error('License creation failed:', error)
+    response.status(500).json({ created: false, reason: 'license_creation_unavailable' })
   }
 })
 
